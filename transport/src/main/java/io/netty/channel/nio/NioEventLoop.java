@@ -109,10 +109,11 @@ public final class NioEventLoop extends SingleThreadEventLoop {
     /**
      * The NIO {@link Selector}.
      */
+    //虽然我们还没看创建 selector 的代码，但我们已经知道，在 Netty 中 Selector 是跟着线程池中的线程走的。
     private Selector selector;
     private Selector unwrappedSelector;
     private SelectedSelectionKeySet selectedKeys;
-
+    //它由 NioEventLoopGroup 传进来，前面我们说了一个线程池有一个 selectorProvider，用于创建 Selector 实例
     private final SelectorProvider provider;
 
     /**
@@ -122,15 +123,22 @@ public final class NioEventLoop extends SingleThreadEventLoop {
      * waken up.
      */
     private final AtomicBoolean wakenUp = new AtomicBoolean();
-
+    //select 操作的策略
     private final SelectStrategy selectStrategy;
-
+    //这是 IO 任务的执行时间比例，因为每个线程既有 IO 任务执行，也有非 IO 任务需要执行，
+    //所以该参数为了保证有足够时间是给 IO 的。这里也不需要急着去理解什么 IO 任务、什么非 IO 任务。
     private volatile int ioRatio = 50;
     private int cancelledKeys;
     private boolean needsToSelectAgain;
 
+    // 在 Netty 中，NioEventLoopGroup 代表线程池，NioEventLoop 就是其中的线程。
+    // 线程池 NioEventLoopGroup 是池中的线程 NioEventLoop 的 parent，从上面的代码中的取名可以看出。
+    // 每个 NioEventLoop 都有自己的 Selector，上面的代码也反应了这一点，这和 Tomcat 中的 NIO 模型有点区别。
+    // executor、selectStrategy 和 rejectedExecutionHandler 从 NioEventLoopGroup 中一路传到了 NioEventLoop 中。
+    //进入构造方法
     NioEventLoop(NioEventLoopGroup parent, Executor executor, SelectorProvider selectorProvider,
                  SelectStrategy strategy, RejectedExecutionHandler rejectedExecutionHandler) {
+        //进入父类--> SingleThreadEventLoop
         super(parent, executor, false, DEFAULT_MAX_PENDING_TASKS, rejectedExecutionHandler);
         if (selectorProvider == null) {
             throw new NullPointerException("selectorProvider");
@@ -139,6 +147,10 @@ public final class NioEventLoop extends SingleThreadEventLoop {
             throw new NullPointerException("selectStrategy");
         }
         provider = selectorProvider;
+
+        // 开启 NIO 中最重要的组件：Selector
+        // 创建 selector 实例
+        // 创建线程的时机在第一个任务提交过来的时候，那么第一个任务是什么呢？是我们马上要说的 channel 的 register 操作。
         final SelectorTuple selectorTuple = openSelector();
         selector = selectorTuple.selector;
         unwrappedSelector = selectorTuple.unwrappedSelector;
@@ -397,10 +409,27 @@ public final class NioEventLoop extends SingleThreadEventLoop {
         }
     }
 
+    //这个方法肯定是没那么容易结束的，必然是像 JDK 线程池的 Worker 那样，不断地循环获取新的任务的。
+    //它需要不断地做 select 操作和轮询 taskQueue 这个队列。
+
+
+    //首先，会根据 hasTasks() 的结果来决定是执行 selectNow() 还是 select(oldWakenUp)，这个应该好理解。如果有任务正在等待，那么应该使用无阻塞的 selectNow()，如果没有任务在等待，那么就可以使用带阻塞的 select 操作。
+    //ioRatio 控制 IO 操作所占的时间比重：
+    //如果设置为 100%，那么先执行 IO 操作，然后再执行任务队列中的任务。
+    //如果不是 100%，那么先执行 IO 操作，然后执行 taskQueue 中的任务，但是需要控制执行任务的总时间，这个时间通过 ioRatio，以及这次 IO 操作耗时计算得出。
+
+    //我们前面在 register 的时候提交了 register 任务给 NioEventLoop，这是 NioEventLoop 接收到的第一个任务，所以这里会实例化 Thread 并且启动，
+    // 然后进入到 NioEventLoop 中的 run 方法。
     @Override
     protected void run() {
+        // 代码嵌套在 for 循环中
         for (;;) {
             try {
+                // selectStrategy 终于要派上用场了
+                // 它有两个值，一个是 CONTINUE 一个是 SELECT
+                // 针对这块代码，我们分析一下，如果 taskQueue 不为空，也就是 hasTasks() 返回 true，
+                //         那么执行一次 selectNow()，因为该方法不会阻塞
+                // 如果 hasTasks() 返回 false，那么执行 SelectStrategy.SELECT 分支，进行 select(...)，这块是带阻塞的
                 switch (selectStrategy.calculateStrategy(selectNowSupplier, hasTasks())) {
                     case SelectStrategy.CONTINUE:
                         continue;
@@ -409,6 +438,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                         // fall-through to SELECT since the busy-wait is not supported with NIO
 
                     case SelectStrategy.SELECT:
+                        // // 如果 !hasTasks()，那么进到这个 select 分支，这里 select 带阻塞的
                         select(wakenUp.getAndSet(false));
 
                         // 'wakenUp.compareAndSet(false, true)' is always evaluated
@@ -448,21 +478,28 @@ public final class NioEventLoop extends SingleThreadEventLoop {
 
                 cancelledKeys = 0;
                 needsToSelectAgain = false;
+                // // 默认地，ioRatio 的值是 50
                 final int ioRatio = this.ioRatio;
                 if (ioRatio == 100) {
                     try {
+                        //// 如果 ioRatio 设置为 100，那么先执行 IO 操作，然后在 finally 块中执行 taskQueue 中的任务
                         processSelectedKeys();
                     } finally {
                         // Ensure we always run tasks.
+                        //// 2. 执行非 IO 任务，也就是 taskQueue 中的任务
                         runAllTasks();
                     }
                 } else {
+                    // 如果 ioRatio 不是 100，那么根据 IO 操作耗时，限制非 IO 操作耗时
                     final long ioStartTime = System.nanoTime();
                     try {
+                        // // 执行 IO 操作
                         processSelectedKeys();
                     } finally {
+                        //// 根据 IO 操作消耗的时间，计算执行非 IO 操作（runAllTasks）可以用多少时间.
                         // Ensure we always run tasks.
                         final long ioTime = System.nanoTime() - ioStartTime;
+
                         runAllTasks(ioTime * (100 - ioRatio) / ioRatio);
                     }
                 }

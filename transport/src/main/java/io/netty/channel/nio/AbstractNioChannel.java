@@ -80,11 +80,15 @@ public abstract class AbstractNioChannel extends AbstractChannel {
      * @param ch                the underlying {@link SelectableChannel} on which it operates
      * @param readInterestOp    the ops to set to receive data from the {@link SelectableChannel}
      */
+    //// 然后是到这里
     protected AbstractNioChannel(Channel parent, SelectableChannel ch, int readInterestOp) {
         super(parent);
         this.ch = ch;
+        //我们看到这里只是保存了 SelectionKey.OP_READ 这个信息，在后面的时候会用到
         this.readInterestOp = readInterestOp;
         try {
+            // ******设置 channel 的非阻塞模式******
+            //NioServerSocketChannel 的构造方法类似，也设置了非阻塞，然后设置服务端关心的 SelectionKey.OP_ACCEPT 事件：
             ch.configureBlocking(false);
         } catch (IOException e) {
             try {
@@ -237,6 +241,8 @@ public abstract class AbstractNioChannel extends AbstractChannel {
             return javaChannel();
         }
 
+
+        //这里
         @Override
         public final void connect(
                 final SocketAddress remoteAddress, final SocketAddress localAddress, final ChannelPromise promise) {
@@ -251,13 +257,29 @@ public abstract class AbstractNioChannel extends AbstractChannel {
                 }
 
                 boolean wasActive = isActive();
+                // 大家自己点进去看 doConnect 方法
+                // 这一步会做 JDK 底层的 SocketChannel connect，然后设置 interestOps 为 SelectionKey.OP_CONNECT
+                // 返回值代表是否已经连接成功
+
+
+                //如果上面的 doConnect 方法返回 false，那么后续是怎么处理的呢？
+
+                //在上一节介绍的 register 操作中，channel 已经 register 到了 selector 上，只不过将 interestOps 设置为了 0，也就是什么都不监听。
+
+                //而在上面的 doConnect 方法中，我们看到它在调用底层的 connect 方法后，会设置 interestOps 为 SelectionKey.OP_CONNECT。
+
+                //剩下的就是 NioEventLoop 的事情了，还记得 NioEventLoop 的 run() 方法吗？也就是说这里的 connect 成功以后，会在 run() 方法中被 processSelectedKeys() 方法处理掉。
                 if (doConnect(remoteAddress, localAddress)) {
+                    // 处理连接成功的情况
                     fulfillConnectPromise(promise, wasActive);
                 } else {
                     connectPromise = promise;
                     requestedRemoteAddress = remoteAddress;
 
                     // Schedule connect timeout.
+
+                    // 下面这块代码，在处理连接超时的情况，代码很简单
+                    // 这里用到了 NioEventLoop 的定时任务的功能，这个我们之前一直都没有介绍过，因为我觉得也不太重要
                     int connectTimeoutMillis = config().getConnectTimeoutMillis();
                     if (connectTimeoutMillis > 0) {
                         connectTimeoutFuture = eventLoop().schedule(new Runnable() {
@@ -378,11 +400,20 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         return loop instanceof NioEventLoop;
     }
 
+
+    //这里
     @Override
     protected void doRegister() throws Exception {
         boolean selected = false;
         for (;;) {
             try {
+                // 附 JDK 中 Channel 的 register 方法：
+                // public final SelectionKey register(Selector sel, int ops, Object att) {...}
+
+                // 这里做了 JDK 底层的 register 操作，将 SocketChannel(或 ServerSocketChannel) 注册到 Selector 中，
+                // 并且可以看到，这里的监听集合设置为了 0，也就是什么都不监听。
+
+                //也就意味着，后续一定有某个地方会需要修改这个 selectionKey 的监听集合。
                 selectionKey = javaChannel().register(eventLoop().unwrappedSelector(), 0, this);
                 return;
             } catch (CancelledKeyException e) {

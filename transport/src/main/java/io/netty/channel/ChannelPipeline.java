@@ -213,6 +213,26 @@ import java.util.NoSuchElementException;
  * For example, you can insert an encryption handler when sensitive information is about to be exchanged, and remove it
  * after the exchange.
  */
+
+
+/**
+ * ChannelPipeline 提供了 ChannelHandler 链的容器，并定义了用于在该链上传播入站和出站事件流的 API。
+ 当 Channel 被创建时，它会被自动地分配到它专属的 ChannelPipeline。
+
+ 1.一个ChannelInitializer的实现被注册到了ServerBootstrap中
+ 2.当 ChannelInitializer.initChannel()方法被调用时，ChannelInitializer将在 ChannelPipeline 中安装一组自定义的 ChannelHandler
+ 3.ChannelInitializer 将它自己从 ChannelPipeline 中移除
+
+ ChannelHandler 是专为支持广泛的用途而设计的，可以将它看作是处理往来 ChannelPipeline 事件（包括数据）的任何代码的通用容器
+
+ 当ChannelHandler 被添加到ChannelPipeline 时，它将会被分配一个ChannelHandlerContext，其代表了 ChannelHandler
+ 和 ChannelPipeline 之间的绑定。虽然这个对象可以被用于获取底层的 Channel，但是它主要还是被用于写出站数据
+
+
+ 在 Netty 中，有两种发送消息的方式,你可以直接写到 Channel 中，也可以 写到和 ChannelHandler相关联的
+ ChannelHandlerContext对象中。前一种方式将会导致消息从ChannelPipeline的尾端开始流动，而后者将导致
+ 消息从 ChannelPipeline 中的下一个 ChannelHandler 开始流动
+ */
 public interface ChannelPipeline
         extends ChannelInboundInvoker, ChannelOutboundInvoker, Iterable<Entry<String, ChannelHandler>> {
 

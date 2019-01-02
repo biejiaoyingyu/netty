@@ -32,6 +32,15 @@ public class ReflectiveChannelFactory<T extends Channel> implements ChannelFacto
         this.clazz = clazz;
     }
 
+    //newChannel() 方法是 ChannelFactory 接口中的唯一方法，工厂模式大家都很熟悉。
+    // 我们可以看到，ReflectiveChannelFactory#newChannel() 方法中使用了反射调用
+    // Channel 的无参构造方法来创建 Channel，我们只要知道，ChannelFactory 的
+    // newChannel() 方法什么时候会被调用就可以了。
+
+    //对于 NioSocketChannel，由于它充当客户端的功能，它的创建时机在 connect(…) 的时候；
+    //对于 NioServerSocketChannel 来说，它充当服务端功能，它的创建时机在绑定端口 bind(…) 的时候。
+
+    //走流程的时候并没有触发这个方法
     @Override
     public T newChannel() {
         try {

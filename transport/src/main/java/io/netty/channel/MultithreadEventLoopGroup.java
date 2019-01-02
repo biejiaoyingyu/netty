@@ -36,6 +36,7 @@ public abstract class MultithreadEventLoopGroup extends MultithreadEventExecutor
 
     private static final int DEFAULT_EVENT_LOOP_THREADS;
 
+
     static {
         DEFAULT_EVENT_LOOP_THREADS = Math.max(1, SystemPropertyUtil.getInt(
                 "io.netty.eventLoopThreads", NettyRuntime.availableProcessors() * 2));
@@ -48,7 +49,12 @@ public abstract class MultithreadEventLoopGroup extends MultithreadEventExecutor
     /**
      * @see MultithreadEventExecutorGroup#MultithreadEventExecutorGroup(int, Executor, Object...)
      */
+
+    // 这里我们发现，如果采用无参构造函数，那么到这里的时候，默认地 nThreads 会被设置为 CPU 核心数 *2。
+    // 大家可以看下 DEFAULT_EVENT_LOOP_THREADS 的默认值，以及 static 代码块的设值逻辑。
+    // 继续父类
     protected MultithreadEventLoopGroup(int nThreads, Executor executor, Object... args) {
+
         super(nThreads == 0 ? DEFAULT_EVENT_LOOP_THREADS : nThreads, executor, args);
     }
 
@@ -81,8 +87,13 @@ public abstract class MultithreadEventLoopGroup extends MultithreadEventExecutor
     @Override
     protected abstract EventLoop newChild(Executor executor, Object... args) throws Exception;
 
+
+    // 这里注册
+    // next() 方法很简单，就是选择线程池中的一个线程（还记得 chooserFactory 吗），也就是选择一个
+    // NioEventLoop 实例，这个时候我们就进入到 NioEventLoop 了。
     @Override
     public ChannelFuture register(Channel channel) {
+        //进入
         return next().register(channel);
     }
 

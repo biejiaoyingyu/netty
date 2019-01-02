@@ -45,6 +45,7 @@ import io.netty.util.internal.TypeParameterMatcher;
  * {@code messageReceived(ChannelHandlerContext, I)} in 5.0.
  * </p>
  */
+//其中 T 是你要处理的消息的 Java 类型
 public abstract class SimpleChannelInboundHandler<I> extends ChannelInboundHandlerAdapter {
 
     private final TypeParameterMatcher matcher;

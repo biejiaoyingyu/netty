@@ -30,6 +30,9 @@ import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import static io.netty.util.internal.ObjectUtil.checkNotNull;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
+//此类实现了 Promise，但是没有实现 ChannelFuture，所以它和 Channel 联系不起来。
+//需要看DefaultChannelPromise 的使用，这个类是综合了 ChannelFuture 和 Promise 的，
+// 但是它的实现其实大部分都是继承自这里的 DefaultPromise 类的。
 public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(DefaultPromise.class);
     private static final InternalLogger rejectedExecutionLogger =
@@ -44,7 +47,10 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
     private static final CauseHolder CANCELLATION_CAUSE_HOLDER = new CauseHolder(ThrowableUtil.unknownStackTrace(
             new CancellationException(), DefaultPromise.class, "cancel(...)"));
 
+
+    // 保存执行结果
     private volatile Object result;
+    // 执行任务的线程池，promise 持有 executor 的引用，这个其实有点奇怪了
     private final EventExecutor executor;
     /**
      * One or more listeners. Can be a {@link GenericFutureListener} or a {@link DefaultFutureListeners}.
@@ -52,16 +58,19 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
      *
      * Threading - synchronized(this). We must support adding listeners when there is no EventExecutor.
      */
+    // 监听者，回调函数，任务结束后（正常或异常结束）执行
     private Object listeners;
     /**
      * Threading - synchronized(this). We are required to hold the monitor to use Java's underlying wait()/notifyAll().
      */
+    // 等待这个 promise 的线程数(调用sync()/await()进行等待的线程数量)
     private short waiters;
 
     /**
      * Threading - synchronized(this). We must prevent concurrent notification and FIFO listener notification if the
      * executor changes.
      */
+    // 是否正在唤醒等待线程，用于防止重复执行唤醒，不然会重复执行 listeners 的回调方法
     private boolean notifyingListeners;
 
     /**
@@ -88,6 +97,7 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
         executor = null;
     }
 
+    //1. setSuccess()---->设置结果，返回自己---->通知监听器---->有异常抛出
     @Override
     public Promise<V> setSuccess(V result) {
         if (setSuccess0(result)) {
@@ -97,6 +107,7 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
         throw new IllegalStateException("complete already: " + this);
     }
 
+    //2. trySuccess()---->设置结果，boolean---->通知监听器
     @Override
     public boolean trySuccess(V result) {
         if (setSuccess0(result)) {
@@ -105,7 +116,7 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
         }
         return false;
     }
-
+    //3. setFailure()---->设置结果，返回自己---->通知监听器---->有异常抛出
     @Override
     public Promise<V> setFailure(Throwable cause) {
         if (setFailure0(cause)) {
@@ -115,6 +126,9 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
         throw new IllegalStateException("complete already: " + this, cause);
     }
 
+    //4. tryFailure()---->设置结果，boolean---->通知监听器
+
+    //上面的代码，在 setSuccess0 或 setFailure0 方法中都会唤醒阻塞在 sync() 或 await() 的线程
     @Override
     public boolean tryFailure(Throwable cause) {
         if (setFailure0(cause)) {
@@ -123,7 +137,55 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
         }
         return false;
     }
+   /* public static void main(String[] args) {
 
+        // 构造线程池
+        EventExecutor executor = new DefaultEventExecutor();
+
+        // 创建 DefaultPromise 实例
+        Promise promise = new DefaultPromise(executor);
+
+        // 下面给这个 promise 添加两个 listener
+        promise.addListener(new GenericFutureListener<Future<Integer>>() {
+            @Override
+            public void operationComplete(Future future) throws Exception {
+                if (future.isSuccess()) {
+                    System.out.println("任务结束，结果：" + future.get());
+                } else {
+                    System.out.println("任务失败，异常：" + future.cause());
+                }
+            }
+        }).addListener(new GenericFutureListener<Future<Integer>>() {
+            @Override
+            public void operationComplete(Future future) throws Exception {
+                System.out.println("任务结束，balabala...");
+            }
+        });
+
+        // 提交任务到线程池，五秒后执行结束，设置执行 promise 的结果
+        executor.submit(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    Thread.sleep(5000);
+                } catch (InterruptedException e) {
+                }
+                // 设置 promise 的结果
+                // promise.setFailure(new RuntimeException());
+                promise.setSuccess(123456);
+            }
+        });
+
+        // main 线程阻塞等待执行结果
+        try {
+            promise.sync();
+        } catch (InterruptedException e) {
+        }
+    }
+    //任务结束，结果：123456
+    //任务结束，balabala...
+
+    */
     @Override
     public boolean setUncancellable() {
         if (RESULT_UPDATER.compareAndSet(this, null, UNCANCELLABLE)) {
@@ -332,9 +394,12 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
         return isDone0(result);
     }
 
+
+    //// sync和await()的区别如果任务是失败的，重新抛出相应的异常
     @Override
     public Promise<V> sync() throws InterruptedException {
         await();
+        // 如果任务是失败的，重新抛出相应的异常
         rethrowIfFailed();
         return this;
     }

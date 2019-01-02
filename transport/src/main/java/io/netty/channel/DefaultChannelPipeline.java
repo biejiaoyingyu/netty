@@ -89,11 +89,25 @@ public class DefaultChannelPipeline implements ChannelPipeline {
      */
     private boolean registered;
 
+    // 构造方法 这里实例化了 tail 和 head 这两个 handler。tail 实现了 ChannelInboundHandler 接口，
+    // 而 head 实现了 ChannelOutboundHandler 和 ChannelInboundHandler 两个接口，并且最后两行代码
+    // 将 tail 和 head 连接起来:
+
+    // 在不同的版本中，源码也略有差异，head 不一定是 in + out，大家知道这点就好了。
+
+    // 从上面的 head 和 tail 我们也可以看到，其实 pipeline 中的每个元素是 ChannelHandlerContext 的
+    // 实例，而不是 ChannelHandler 的实例，context 包装了一下 handler，但是，后面我们都会用 handler
+    // 来描述一个 pipeline 上的节点，而不是使用 context，
+
+
+    // 我们说过 childHandler 中指定的 handler 不是给 NioServerSocketChannel 使用的，
+    // 是给 NioSocketChannel 使用的，所以这里我们不看它。
     protected DefaultChannelPipeline(Channel channel) {
         this.channel = ObjectUtil.checkNotNull(channel, "channel");
         succeededFuture = new SucceededChannelFuture(channel, null);
         voidPromise =  new VoidChannelPromise(channel, true);
 
+        //这是ChannelHandlerContext--->包装handler-->顾名思义，是handler的容器
         tail = new TailContext(this);
         head = new HeadContext(this);
 
@@ -856,6 +870,13 @@ public class DefaultChannelPipeline implements ChannelPipeline {
 
     @Override
     public final ChannelPipeline fireChannelRegistered() {
+
+        // 注意这里的传参是 head
+        // 也就是说，我们往 pipeline 中扔了一个 channelRegistered 事件，这里的 register 属于 Inbound 事件，
+        // pipeline 接下来要做的就是执行 pipeline 中的 Inbound handlers 中的 channelRegistered() 方法。
+
+
+        //往 pipeline 中扔出 channelRegistered 事件以后，第一个处理的 handler 是 head。
         AbstractChannelHandlerContext.invokeChannelRegistered(head);
         return this;
     }
@@ -1014,11 +1035,16 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         return this;
     }
 
+    //bind 操作和 connect 一样，都是 Outbound 类型的，所以都是 tail 开始：
     @Override
     public final ChannelFuture bind(SocketAddress localAddress, ChannelPromise promise) {
         return tail.bind(localAddress, promise);
     }
 
+    // 我们看到，connect 操作是交给 pipeline 来执行的。进入 pipeline 中，我们会发现，
+    // connect 这种 Outbound 类型的操作，是从 pipeline 的 tail 开始的：
+
+    //前面我们介绍的 register 操作是 Inbound 的，是从 head 开始的
     @Override
     public final ChannelFuture connect(SocketAddress remoteAddress, ChannelPromise promise) {
         return tail.connect(remoteAddress, promise);
@@ -1265,6 +1291,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
     }
 
     // A special catch-all handler that handles both bytes and messages.
+    // 适配器
     final class TailContext extends AbstractChannelHandlerContext implements ChannelInboundHandler {
 
         TailContext(DefaultChannelPipeline pipeline) {
@@ -1351,6 +1378,8 @@ public class DefaultChannelPipeline implements ChannelPipeline {
             // NOOP
         }
 
+
+        //最后的 bind 操作又到了 head 中，由 head 来调用 unsafe 提供的 bind 方法：
         @Override
         public void bind(
                 ChannelHandlerContext ctx, SocketAddress localAddress, ChannelPromise promise)
@@ -1358,11 +1387,14 @@ public class DefaultChannelPipeline implements ChannelPipeline {
             unsafe.bind(localAddress, promise);
         }
 
+        // 从 tail 开始往前找 out 类型的 handlers，最后会到 head 中，
+        // 因为 head 也是 Outbound 类型的，我们需要的 connect 操作就在 head 中，
         @Override
         public void connect(
                 ChannelHandlerContext ctx,
                 SocketAddress remoteAddress, SocketAddress localAddress,
                 ChannelPromise promise) throws Exception {
+            //这里--->connect 在 unsafe 类中所谓的底层操作
             unsafe.connect(remoteAddress, localAddress, promise);
         }
 
@@ -1401,9 +1433,13 @@ public class DefaultChannelPipeline implements ChannelPipeline {
             ctx.fireExceptionCaught(cause);
         }
 
+
+
         @Override
         public void channelRegistered(ChannelHandlerContext ctx) throws Exception {
+            // // 1. 这一步是 head 对于 channelRegistered 事件的处理。没有我们要关心的
             invokeHandlerAddedIfNeeded();
+            //// 2. 向后传播 Inbound 事件 -->很关键
             ctx.fireChannelRegistered();
         }
 

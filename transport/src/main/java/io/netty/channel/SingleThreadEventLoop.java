@@ -52,10 +52,13 @@ public abstract class SingleThreadEventLoop extends SingleThreadEventExecutor im
         tailTasks = newTaskQueue(maxPendingTasks);
     }
 
+    //这里
     protected SingleThreadEventLoop(EventLoopGroup parent, Executor executor,
                                     boolean addTaskWakesUp, int maxPendingTasks,
                                     RejectedExecutionHandler rejectedExecutionHandler) {
+        //进入父类
         super(parent, executor, addTaskWakesUp, maxPendingTasks, rejectedExecutionHandler);
+        // 我们可以直接忽略这个东西，以后我们也不会再介绍它
         tailTasks = newTaskQueue(maxPendingTasks);
     }
 
@@ -69,14 +72,20 @@ public abstract class SingleThreadEventLoop extends SingleThreadEventExecutor im
         return (EventLoop) super.next();
     }
 
+    //这里1
     @Override
     public ChannelFuture register(Channel channel) {
+        //promise关联channel
         return register(new DefaultChannelPromise(channel, this));
     }
 
+    //这里2.实例化了一个 Promise，将当前 channel 带进去
     @Override
     public ChannelFuture register(final ChannelPromise promise) {
         ObjectUtil.checkNotNull(promise, "promise");
+        //// promise 关联了 channel，channel 持有 Unsafe 实例，register 操作就封装在 Unsafe 中
+
+        //拿到 channel 中关联的 Unsafe 实例，然后调用它的 register 方法：
         promise.channel().unsafe().register(this, promise);
         return promise;
     }

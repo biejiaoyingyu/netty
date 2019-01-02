@@ -46,6 +46,8 @@ import java.util.Map.Entry;
  * <p>The {@link #bind()} methods are useful in combination with connectionless transports such as datagram (UDP).
  * For regular TCP connections, please use the provided {@link #connect()} methods.</p>
  */
+
+//注意这种泛型的用法
 public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
 
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(Bootstrap.class);
@@ -109,6 +111,9 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
     /**
      * Connect a {@link Channel} to the remote peer.
      */
+
+
+    //这里--->对于客户端 NioSocketChannel 来说，前面 register 完成以后，就要开始 connect 了，这一步将连接到服务端。
     public ChannelFuture connect() {
         validate();
         SocketAddress remoteAddress = this.remoteAddress;
@@ -122,7 +127,10 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
     /**
      * Connect a {@link Channel} to the remote peer.
      */
+    //追踪下充当客户端的 Bootstrap 中 NioSocketChannel 的创建过程，看看
+    //NioSocketChannel 是怎么和 JDK 中的 SocketChannel 关联在一起的
     public ChannelFuture connect(String inetHost, int inetPort) {
+        //进入
         return connect(InetSocketAddress.createUnresolved(inetHost, inetPort));
     }
 
@@ -140,8 +148,9 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
         if (remoteAddress == null) {
             throw new NullPointerException("remoteAddress");
         }
-
+        //// validate 只是校验一下各个参数是不是正确设置了
         validate();
+        //进入
         return doResolveAndConnect(remoteAddress, config.localAddress());
     }
 
@@ -159,7 +168,10 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
     /**
      * @see #connect()
      */
+
+    //进入这
     private ChannelFuture doResolveAndConnect(final SocketAddress remoteAddress, final SocketAddress localAddress) {
+        //这里，进入
         final ChannelFuture regFuture = initAndRegister();
         final Channel channel = regFuture.channel();
 
@@ -167,6 +179,7 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
             if (!regFuture.isSuccess()) {
                 return regFuture;
             }
+            // 看这里
             return doResolveAndConnect0(channel, remoteAddress, localAddress, channel.newPromise());
         } else {
             // Registration future is almost always fulfilled already, but just in case it's not.
@@ -193,6 +206,8 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
         }
     }
 
+
+    //这里
     private ChannelFuture doResolveAndConnect0(final Channel channel, SocketAddress remoteAddress,
                                                final SocketAddress localAddress, final ChannelPromise promise) {
         try {
@@ -201,6 +216,7 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
 
             if (!resolver.isSupported(remoteAddress) || resolver.isResolved(remoteAddress)) {
                 // Resolver has no idea about what to do with the specified remote address or it's resolved already.
+                //--->这里
                 doConnect(remoteAddress, localAddress, promise);
                 return promise;
             }
@@ -245,10 +261,12 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
         // This method is invoked before channelRegistered() is triggered.  Give user handlers a chance to set up
         // the pipeline in its channelRegistered() implementation.
         final Channel channel = connectPromise.channel();
+
         channel.eventLoop().execute(new Runnable() {
             @Override
             public void run() {
                 if (localAddress == null) {
+                    //这里
                     channel.connect(remoteAddress, connectPromise);
                 } else {
                     channel.connect(remoteAddress, localAddress, connectPromise);

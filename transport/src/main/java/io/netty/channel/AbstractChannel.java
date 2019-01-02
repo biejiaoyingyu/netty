@@ -56,8 +56,37 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             new NotYetConnectedException(), AbstractUnsafe.class, "flush0()");
 
     private final Channel parent;
+
+    // 给每个 channel 分配一个唯一 id
     private final ChannelId id;
+    // 每个 channel 内部需要一个 Unsafe 的实例
+
+    // 在 JDK 的源码中，sun.misc.Unsafe 类提供了一些底层操作的能力，它设计出来是给 JDK 中的源码使用的，
+    // 比如 AQS、ConcurrentHashMap 等，我们在之前的并发包的源码分析中也看到了很多它们使用 Unsafe 的场
+    // 景，这个 Unsafe 类不是给我们的代码使用的（需要的话，我们也是可以获取它的实例的）。
+
+    //Unsafe 类的构造方法是 private 的，但是它提供了 getUnsafe() 这个静态方法：
+
+    //Unsafe unsafe = Unsafe.getUnsafe();
+    //大家可以试一下，上面这行代码编译没有问题，但是执行的时候会抛 java.lang.SecurityException 异常，
+    //因为它就不是给我们的代码用的。
+
+    //但是如果你就是想获取 Unsafe 的实例，可以通过下面这个代码获取到:
+
+    //Field f = Unsafe.class.getDeclaredField("theUnsafe");
+    //f.setAccessible(true);
+    //Unsafe unsafe = (Unsafe) f.get(null);
+
+
+    //Netty 中的 Unsafe 也是同样的意思，它封装了 Netty 中会使用到的 JDK 提供的 NIO 接口，比如将 channel
+    //注册到 selector 上，比如 bind 操作，比如 connect 操作等，这些操作都是稍微偏底层一些。Netty 同样也
+    //是不希望我们的业务代码使用 Unsafe 的实例，它是提供给 Netty 中的源码使用的。
+
+    // 进入Unsafe
+
     private final Unsafe unsafe;
+    // 每个 channel 内部都会创建一个 pipeline
+    //id 比较不重要，Netty 中的 Unsafe 实例其实挺重要的，
     private final DefaultChannelPipeline pipeline;
     private final VoidChannelPromise unsafeVoidPromise = new VoidChannelPromise(this, false);
     private final CloseFuture closeFuture = new CloseFuture(this);
@@ -249,11 +278,14 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
         return this;
     }
 
+
+    //bind 操作也是要由 pipeline 来完成的
     @Override
     public ChannelFuture bind(SocketAddress localAddress, ChannelPromise promise) {
         return pipeline.bind(localAddress, promise);
     }
 
+    //来到 AbstractChannel 的 connect 方法
     @Override
     public ChannelFuture connect(SocketAddress remoteAddress, ChannelPromise promise) {
         return pipeline.connect(remoteAddress, promise);
@@ -470,12 +502,24 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 return;
             }
 
+
+            // 将这个 eventLoop 实例设置给这个 channel，从此这个 channel 就是有 eventLoop 的了
+            // 我觉得这一步其实挺关键的，因为后续该 channel 中的所有异步操作，都要提交给这个 eventLoop 来执行
             AbstractChannel.this.eventLoop = eventLoop;
 
+            // 如果发起 register 动作的线程就是 eventLoop 实例中的线程，那么直接调用 register0(promise)
+            // 对于我们来说，它不会进入到这个分支，之所以有这个分支，是因为我们是可以 unregister，然后再 register 的
             if (eventLoop.inEventLoop()) {
+
+
+                //这里也很重要
                 register0(promise);
             } else {
                 try {
+                    //// 否则，提交任务给 eventLoop，eventLoop 中的线程会负责调用 register0(promise)
+
+                    //=====>NioEventLoop 中是还没有实例化 Thread 实例的。
+                    //进入execute ===》 SingleThreadEventExecutor
                     eventLoop.execute(new Runnable() {
                         @Override
                         public void run() {
@@ -493,6 +537,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             }
         }
 
+        //这里
         private void register0(ChannelPromise promise) {
             try {
                 // check if the channel is still open as it could be closed in the mean time when the register
@@ -501,19 +546,38 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                     return;
                 }
                 boolean firstRegistration = neverRegistered;
+
+                //// *** 进行 JDK 底层的操作：Channel 注册到 Selector 上 ***
+                //进入
                 doRegister();
                 neverRegistered = false;
                 registered = true;
 
                 // Ensure we call handlerAdded(...) before we actually notify the promise. This is needed as the
                 // user may already fire events through the pipeline in the ChannelFutureListener.
-                pipeline.invokeHandlerAddedIfNeeded();
 
+                // 到这里，就算是 registered 了
+
+                // 这一步也很关键，因为这涉及到了 ChannelInitializer 的 init(channel)
+                // 我们之前说过，init 方法会将 ChannelInitializer 内部添加的 handlers 添加到 pipeline 中
+
+                //进入---->这个过程很长
+                pipeline.invokeHandlerAddedIfNeeded();
+                // 设置当前 promise 的状态为 success
+                // 因为当前 register 方法是在 eventLoop 中的线程中执行的，需要通知提交 register 操作的线程
                 safeSetSuccess(promise);
+
+                //进入
                 pipeline.fireChannelRegistered();
+
+
+
                 // Only fire a channelActive if the channel has never been registered. This prevents firing
                 // multiple channel actives if the channel is deregistered and re-registered.
+
+                // 这里 active 指的是 channel 已经打开
                 if (isActive()) {
+                    // 如果该 channel 是第一次执行 register，那么 fire ChannelActive 事件
                     if (firstRegistration) {
                         pipeline.fireChannelActive();
                     } else if (config().isAutoRead()) {
@@ -521,6 +585,9 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                         // again so that we process inbound data.
                         //
                         // See https://github.com/netty/netty/issues/4805
+
+                        // 该 channel 之前已经 register 过了，
+                        // 这里让该 channel 立马去监听通道中的 OP_READ 事件
                         beginRead();
                     }
                 }

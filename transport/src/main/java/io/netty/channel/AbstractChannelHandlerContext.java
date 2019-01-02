@@ -123,15 +123,29 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
         return name;
     }
 
+
+    // 这里很关键
+    // findContextInbound() 方法会沿着 pipeline 找到下一个 Inbound 类型的 handler
+
+    // pipeline.fireChannelRegistered() 是将 channelRegistered 事件抛到 pipeline 中，
+    // pipeline 中的 handlers 准备处理该事件。而 context.fireChannelRegistered() 是一个
+    // handler 处理完了以后，向后传播给下一个 handler。
     @Override
     public ChannelHandlerContext fireChannelRegistered() {
+
+        //findContextInbound() 将找到下一个 Inbound 类型的 handler，然后又是重复上面的几个方法。
+
+        //总之就是从 head 中开始，依次往下寻找所有 Inbound handler，执行其 channelRegistered(ctx) 操作。
         invokeChannelRegistered(findContextInbound());
         return this;
     }
 
+    //next 此时是 head
+    //这里会先执行 head.invokeChannelRegistered() 方法，而且是放到 NioEventLoop 中的 taskQueue 中执行的
     static void invokeChannelRegistered(final AbstractChannelHandlerContext next) {
         EventExecutor executor = next.executor();
         if (executor.inEventLoop()) {
+            //进入
             next.invokeChannelRegistered();
         } else {
             executor.execute(new Runnable() {
@@ -146,6 +160,7 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
     private void invokeChannelRegistered() {
         if (invokeHandler()) {
             try {
+                // handler() 方法此时会返回 head -->进入head 的 channelRegistered 方法
                 ((ChannelInboundHandler) handler()).channelRegistered(this);
             } catch (Throwable t) {
                 notifyHandlerException(t);
@@ -483,6 +498,8 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
         final AbstractChannelHandlerContext next = findContextOutbound();
         EventExecutor executor = next.executor();
         if (executor.inEventLoop()) {
+
+            //最后的 bind 操作又到了 head 中，由 head 来调用 unsafe 提供的 bind 方法：
             next.invokeBind(localAddress, promise);
         } else {
             safeExecute(executor, new Runnable() {
@@ -507,6 +524,8 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
         }
     }
 
+    // 从 tail 开始，执行 pipeline 上的 Outbound 类型的 handlers 的 connect(...) 方法，
+    // 那么真正的底层的 connect 的操作发生在哪里呢？
     @Override
     public ChannelFuture connect(SocketAddress remoteAddress, ChannelPromise promise) {
         return connect(remoteAddress, null, promise);
@@ -527,6 +546,7 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
         final AbstractChannelHandlerContext next = findContextOutbound();
         EventExecutor executor = next.executor();
         if (executor.inEventLoop()) {
+            //
             next.invokeConnect(remoteAddress, localAddress, promise);
         } else {
             safeExecute(executor, new Runnable() {

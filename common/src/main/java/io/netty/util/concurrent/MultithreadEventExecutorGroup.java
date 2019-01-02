@@ -55,6 +55,9 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
      * @param args              arguments which will passed to each {@link #newChild(Executor, Object...)} call
      */
     protected MultithreadEventExecutorGroup(int nThreads, Executor executor, Object... args) {
+        //这里
+        //1.构造一个 executor
+        //2.这一步设置了 chooserFactory,用来实现从线程池中选择一个线程的选择策略。-->这个不是线程池
         this(nThreads, executor, DefaultEventExecutorChooserFactory.INSTANCE, args);
     }
 
@@ -71,27 +74,30 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
         if (nThreads <= 0) {
             throw new IllegalArgumentException(String.format("nThreads: %d (expected: > 0)", nThreads));
         }
-
+        //会构造一个 executor --->进入ThreadPerTaskExecutor --->它是给 NioEventLoop 用的，不是给 NioEventLoopGroup 用的。
         if (executor == null) {
             executor = new ThreadPerTaskExecutor(newDefaultThreadFactory());
         }
-
+        // 这里的 children 数组非常重要，它就是线程池中的线程数组，这么说不太严谨，但是就大概这个意思
         children = new EventExecutor[nThreads];
-
+        //// 下面这个 for 循环将实例化 children 数组中的每一个元素
         for (int i = 0; i < nThreads; i ++) {
             boolean success = false;
             try {
+                // 实例化！！！！！！=====>这里非常重要，进入
                 children[i] = newChild(executor, args);
                 success = true;
             } catch (Exception e) {
                 // TODO: Think about if this is a good exception type
                 throw new IllegalStateException("failed to create a child event loop", e);
             } finally {
+                //// 如果有一个 child 实例化失败，那么 success 就会为 false，然后进入下面的失败处理逻辑
                 if (!success) {
                     for (int j = 0; j < i; j ++) {
+                        /// 把已经成功实例化的“线程” shutdown，shutdown 是异步操作
                         children[j].shutdownGracefully();
                     }
-
+                    // // 等待这些线程成功 shutdown
                     for (int j = 0; j < i; j ++) {
                         EventExecutor e = children[j];
                         try {
@@ -100,6 +106,7 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
                             }
                         } catch (InterruptedException interrupted) {
                             // Let the caller handle the interruption.
+                            //// 把中断状态设置回去，交给关心的线程来处理.
                             Thread.currentThread().interrupt();
                             break;
                         }
@@ -107,9 +114,16 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
                 }
             }
         }
+        // ================================================
+        // === 到这里，就是代表上面的实例化所有线程已经成功结束 ===
+        // ================================================
 
+
+        // 通过之前设置的 chooserFactory 来实例化 Chooser，把线程池数组传进去
         chooser = chooserFactory.newChooser(children);
-
+        // 设置一个 Listener 用来监听该线程池的 termination 事件
+        // 下面的代码逻辑是：给池中每一个线程都设置这个 listener，当监听到所有线程都
+        // terminate 以后，这个线程池就算真正的 terminate 了。
         final FutureListener<Object> terminationListener = new FutureListener<Object>() {
             @Override
             public void operationComplete(Future<Object> future) throws Exception {
@@ -122,7 +136,7 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
         for (EventExecutor e: children) {
             e.terminationFuture().addListener(terminationListener);
         }
-
+        //// 设置 readonlyChildren，它是只读集合，以后用到再说
         Set<EventExecutor> childrenSet = new LinkedHashSet<EventExecutor>(children.length);
         Collections.addAll(childrenSet, children);
         readonlyChildren = Collections.unmodifiableSet(childrenSet);

@@ -99,10 +99,15 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
      * You either use this or {@link #channelFactory(io.netty.channel.ChannelFactory)} if your
      * {@link Channel} implementation has no no-args constructor.
      */
+    //=========================================================================
+    //  入口
+    //=========================================================================
+    //这里这个方法只是设置了 channelFactory 为 ReflectiveChannelFactory 的一个实例
     public B channel(Class<? extends C> channelClass) {
         if (channelClass == null) {
             throw new NullPointerException("channelClass");
         }
+        //进入
         return channelFactory(new ReflectiveChannelFactory<C>(channelClass));
     }
 
@@ -237,12 +242,16 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
     /**
      * Create a new {@link Channel} and bind it.
      */
+
+    //bind--->doBind()--> initAndRegister()
     public ChannelFuture bind() {
         validate();
         SocketAddress localAddress = this.localAddress;
         if (localAddress == null) {
             throw new IllegalStateException("localAddress not set");
         }
+
+        //进入
         return doBind(localAddress);
     }
 
@@ -279,12 +288,14 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
     }
 
     private ChannelFuture doBind(final SocketAddress localAddress) {
+        //这里
         final ChannelFuture regFuture = initAndRegister();
+        //
         final Channel channel = regFuture.channel();
         if (regFuture.cause() != null) {
             return regFuture;
         }
-
+        //// register 动作已经完成，那么执行 bind 操作
         if (regFuture.isDone()) {
             // At this point we know that the registration was complete and successful.
             ChannelPromise promise = channel.newPromise();
@@ -314,10 +325,15 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
         }
     }
 
+    //这里
     final ChannelFuture initAndRegister() {
         Channel channel = null;
         try {
+            // 进行chnnel实例化，调用前面的反射构造方法====>看 NioSocketChannel 的构造方法了
+
+            // 1. 构造 channel 实例，同时会构造 pipeline 实例，现在 pipeline 中有 head 和 tail 两个 handler 了
             channel = channelFactory.newChannel();
+            // 2. 看这里
             init(channel);
         } catch (Throwable t) {
             if (channel != null) {
@@ -329,8 +345,15 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
             // as the Channel is not registered yet we need to force the usage of the GlobalEventExecutor
             return new DefaultChannelPromise(new FailedChannel(), GlobalEventExecutor.INSTANCE).setFailure(t);
         }
+        // 这里是重点register这一步非常关键
+        // 它发生在 channel 实例化以后，大家回忆一下当前 channel 中的一些情况：实例化了 JDK 底层的 Channel，
+        // 设置了非阻塞，实例化了 Unsafe，实例化了 Pipeline，同时往 pipeline 中添加了 head、tail 以及一个
+        // ChannelInitializer 实例。
 
+        //group() 方法会返回前面实例化的 NioEventLoopGroup 的实例，然后调用其 register(channel) 方法
         ChannelFuture regFuture = config().group().register(channel);
+
+        // 如果在 register 的过程中，发生了错误
         if (regFuture.cause() != null) {
             if (channel.isRegistered()) {
                 channel.close();
@@ -348,6 +371,12 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
         //         because bind() or connect() will be executed *after* the scheduled registration task is executed
         //         because register(), bind(), and connect() are all bound to the same thread.
 
+
+        // 源码中说得很清楚，如果到这里，说明后续可以进行 connect() 或 bind() 了，因为两种情况：
+        // 1. 如果 register 动作是在 eventLoop 中发起的，那么到这里的时候，register 一定已经完成
+        // 2. 如果 register 任务已经提交到 eventLoop 中，也就是进到了 eventLoop 中的 taskQueue 中，
+        //    由于后续的 connect 或 bind 也会进入到同一个 eventLoop 的 queue 中，所以一定是会先 register
+        //    成功，才会执行 connect 或 bind
         return regFuture;
     }
 
@@ -363,6 +392,7 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
             @Override
             public void run() {
                 if (regFuture.isSuccess()) {
+                    // AbstractChannel-->进入
                     channel.bind(localAddress, promise).addListener(ChannelFutureListener.CLOSE_ON_FAILURE);
                 } else {
                     promise.setFailure(regFuture.cause());

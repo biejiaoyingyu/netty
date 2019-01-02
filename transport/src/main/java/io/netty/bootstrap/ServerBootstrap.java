@@ -137,6 +137,7 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
         return this;
     }
 
+    //这里
     @Override
     void init(Channel channel) throws Exception {
         final Map<ChannelOption<?>, Object> options = options0();
@@ -152,7 +153,7 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
                 channel.attr(key).set(e.getValue());
             }
         }
-
+        // 拿到刚刚创建的 channel 内部的 pipeline 实例
         ChannelPipeline p = channel.pipeline();
 
         final EventLoopGroup currentChildGroup = childGroup;
@@ -165,19 +166,37 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
         synchronized (childAttrs) {
             currentChildAttrs = childAttrs.entrySet().toArray(newAttrArray(0));
         }
+        // 开始往 pipeline 中添加一个 handler，这个 handler 是 ChannelInitializer 的实例
 
+        // ChannelInitializer，我们看到，它本身是一个 handler（Inbound 类型），但是它的作用
+        // 和普通 handler 有点不一样，它纯碎是用来将其他的 handler 加入到 pipeline 中的。
         p.addLast(new ChannelInitializer<Channel>() {
+
+            //=====================================
+            //          重点在这里
+            //======================================
+            // 我们以后会看到，下面这个 initChannel 方法何时会被调用
+
+            // ChannelInitializer 的 initChannel(channel) 方法被调用的时候，会往 pipeline
+            // 中添加我们最开始指定的 LoggingHandler 和添加一个 ServerBootstrapAcceptor。
+            // 但是我们现在还不知道这个 initChannel 方法何时会被调用。
+
+            //为什么 Server 端我们指定的是一个 handler 实例，而 Client 指定的是一个 ChannelInitializer 实例？
+            // 其实它们是可以随意搭配使用的，你甚至可以在 ChannelInitializer 实例中添加 ChannelInitializer 的实例。
             @Override
             public void initChannel(final Channel ch) throws Exception {
                 final ChannelPipeline pipeline = ch.pipeline();
+                // // 这个方法返回我们最开始指定的 LoggingHandler 实例
                 ChannelHandler handler = config.handler();
                 if (handler != null) {
+                    //// 添加 LoggingHandler
                     pipeline.addLast(handler);
                 }
-
+                //// 先不用管这里的 eventLoop
                 ch.eventLoop().execute(new Runnable() {
                     @Override
                     public void run() {
+                        // 添加一个 handler 到 pipeline 中：ServerBootstrapAcceptor从名字可以看到，这个 handler 的目的是用于接收客户端请求
                         pipeline.addLast(new ServerBootstrapAcceptor(
                                 ch, currentChildGroup, currentChildHandler, currentChildOptions, currentChildAttrs));
                     }

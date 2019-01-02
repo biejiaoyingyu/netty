@@ -155,14 +155,30 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
      * @param maxPendingTasks   the maximum number of pending tasks before new tasks will be rejected.
      * @param rejectedHandler   the {@link RejectedExecutionHandler} to use.
      */
+    //到这里就更加诡异了，NioEventLoop 的父类是 SingleThreadEventLoop，而 SingleThreadEventLoop 的父类是
+    //SingleThreadEventExecutor，它的名字告诉我们，它是一个 Executor，是一个线程池，而且是 Single Thread 单线程的
+
+    //也就是说，线程池 NioEventLoopGroup 中的每一个线程 NioEventLoop 也可以当做一个线程池来用，只不过池中只有一个
+    //线程。这种设计虽然看上去很巧妙，不过有点反人类的样子。
     protected SingleThreadEventExecutor(EventExecutorGroup parent, Executor executor,
                                         boolean addTaskWakesUp, int maxPendingTasks,
                                         RejectedExecutionHandler rejectedHandler) {
+        //设置了 parent，也就是之前创建的线程池 NioEventLoopGroup 实例
         super(parent);
         this.addTaskWakesUp = addTaskWakesUp;
+        // taskQueue，这个东西很重要，提交给 NioEventLoop 的任务都会进入到这个 taskQueue 中等待被执行这个
+        // queue 的默认容量是 16
+
+        // 这算是该构造方法中新的东西，它是任务队列。我们前面说过，NioEventLoop 需要负责 IO 事件和非 IO 事件，
+        // 通常它都在执行 selector 的 select 方法或者正在处理 selectedKeys，如果我们要submit 一个任务给它，
+        // 任务就会被放到 taskQueue 中，等它来轮询。该队列是线程安全的 LinkedBlockingQueue，默认容量为 16。
         this.maxPendingTasks = Math.max(16, maxPendingTasks);
+        //它是我们之前实例化的 ThreadPerTaskExecutor，我们说过，这个东西在线程池中没有用，它是给 NioEventLoop 用的，
+        //马上我们就要看到它了。提前透露一下，它用来开启 NioEventLoop 中的线程（Thread 实例）。
         this.executor = ObjectUtil.checkNotNull(executor, "executor");
         taskQueue = newTaskQueue(this.maxPendingTasks);
+        //taskQueue 的默认容量是 16，所以，如果 submit 的任务堆积了到了 16，再往里面提交任务会触发
+        //rejectedExecutionHandler 的执行策略。
         rejectedExecutionHandler = ObjectUtil.checkNotNull(rejectedHandler, "rejectedHandler");
     }
 
@@ -768,15 +784,23 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
         return isTerminated();
     }
 
+
+    //这里
     @Override
     public void execute(Runnable task) {
         if (task == null) {
             throw new NullPointerException("task");
         }
 
+        //// 判断添加任务的线程是否就是当前 EventLoop 中的线程
         boolean inEventLoop = inEventLoop();
+        //// 添加任务到之前介绍的 taskQueue 中，
+        //   如果 taskQueue 满了(默认大小 16)，根据我们之前说的，默认的策略是抛出异常
         addTask(task);
         if (!inEventLoop) {
+            //// 如果不是 NioEventLoop 内部线程提交的 task，那么判断下线程是否已经启动，没有的话，就启动线程
+
+            //------> NioEventLoop 中的线程的方法在这里
             startThread();
             if (isShutdown() && removeTask(task)) {
                 reject();
@@ -872,6 +896,7 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
         if (state == ST_NOT_STARTED) {
             if (STATE_UPDATER.compareAndSet(this, ST_NOT_STARTED, ST_STARTED)) {
                 try {
+                    //线程没有启动的情况，来看看 doStartThread() 方法
                     doStartThread();
                 } catch (Throwable cause) {
                     STATE_UPDATER.set(this, ST_NOT_STARTED);
@@ -881,11 +906,18 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
         }
     }
 
+
+
     private void doStartThread() {
         assert thread == null;
+        // 这里的 executor 大家是不是有点熟悉的感觉，它就是一开始我们实例化 NioEventLoop 的时候传进来的
+        // ThreadPerTaskExecutor 的实例。它是每次来一个任务，创建一个线程的那种 executor。
+        // 一旦我们调用它的 execute 方法，它就会创建一个新的线程，所以这里终于会创建 Thread 实例
         executor.execute(new Runnable() {
             @Override
             public void run() {
+
+                // // 看这里，将 “executor” 中创建的这个线程设置为 NioEventLoop 的线程！！！
                 thread = Thread.currentThread();
                 if (interrupted) {
                     thread.interrupt();
@@ -894,6 +926,9 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
                 boolean success = false;
                 updateLastExecutionTime();
                 try {
+                    // // 执行 SingleThreadEventExecutor 的 run() 方法，它在 NioEventLoop 中实现了
+
+                    //进入run()方法
                     SingleThreadEventExecutor.this.run();
                     success = true;
                 } catch (Throwable t) {

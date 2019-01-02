@@ -18,6 +18,8 @@ package io.netty.util.concurrent;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadFactory;
 
+// Executor 作为线程池的最顶层接口， 我们知道，它只有一个 execute(runnable) 方法，
+// 从上面我们可以看到，实现类 ThreadPerTaskExecutor 的逻辑就是每来一个任务，新建一个线程。
 public final class ThreadPerTaskExecutor implements Executor {
     private final ThreadFactory threadFactory;
 
@@ -28,6 +30,8 @@ public final class ThreadPerTaskExecutor implements Executor {
         this.threadFactory = threadFactory;
     }
 
+    // 为每个任务新建一个线程
+    // 它是给 NioEventLoop 用的，不是给 NioEventLoopGroup 用的。
     @Override
     public void execute(Runnable command) {
         threadFactory.newThread(command).start();

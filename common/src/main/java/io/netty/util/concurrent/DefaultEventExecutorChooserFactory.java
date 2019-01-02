@@ -29,12 +29,19 @@ public final class DefaultEventExecutorChooserFactory implements EventExecutorCh
 
     private DefaultEventExecutorChooserFactory() { }
 
+    /**
+     * 这里
+     * @param executors
+     * @return
+     */
     @SuppressWarnings("unchecked")
     @Override
     public EventExecutorChooser newChooser(EventExecutor[] executors) {
+        //如果线程池的线程数量是 2^n，采用下面的方式会高效一些：
         if (isPowerOfTwo(executors.length)) {
             return new PowerOfTwoEventExecutorChooser(executors);
         } else {
+            //如果不是，用取模的方式：
             return new GenericEventExecutorChooser(executors);
         }
     }

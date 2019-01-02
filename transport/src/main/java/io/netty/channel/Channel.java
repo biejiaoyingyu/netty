@@ -74,6 +74,7 @@ import java.net.SocketAddress;
  * resources once you are done with the {@link Channel}. This ensures all resources are
  * released in a proper way, i.e. filehandles.
  */
+//Socket
 public interface Channel extends AttributeMap, ChannelOutboundInvoker, Comparable<Channel> {
 
     /**
@@ -84,6 +85,7 @@ public interface Channel extends AttributeMap, ChannelOutboundInvoker, Comparabl
     /**
      * Return the {@link EventLoop} this {@link Channel} was registered to.
      */
+    //返回分配给 Channel 的 EventLoop
     EventLoop eventLoop();
 
     /**
@@ -112,6 +114,8 @@ public interface Channel extends AttributeMap, ChannelOutboundInvoker, Comparabl
     /**
      * Return {@code true} if the {@link Channel} is active and so connected.
      */
+    //如果 Channel 是活动的，则返回 true。活动的意义可能依赖于底层的传输。例如，
+    //一个 Socket 传输一旦连接到了远程节点便是活动的，而一个 Datagram 传输一旦被打开便是活动的
     boolean isActive();
 
     /**
@@ -128,6 +132,7 @@ public interface Channel extends AttributeMap, ChannelOutboundInvoker, Comparabl
      * @return the local address of this channel.
      *         {@code null} if this channel is not bound.
      */
+    //返回本地的 SokcetAddress
     SocketAddress localAddress();
 
     /**
@@ -144,6 +149,7 @@ public interface Channel extends AttributeMap, ChannelOutboundInvoker, Comparabl
      *         the origination of the received message as this method will
      *         return {@code null}.
      */
+    //返回远程的 SokcetAddress
     SocketAddress remoteAddress();
 
     /**
@@ -180,6 +186,7 @@ public interface Channel extends AttributeMap, ChannelOutboundInvoker, Comparabl
     /**
      * Return the assigned {@link ChannelPipeline}.
      */
+    //返回分配给 Channel 的 ChannelPipeline
     ChannelPipeline pipeline();
 
     /**
@@ -206,6 +213,8 @@ public interface Channel extends AttributeMap, ChannelOutboundInvoker, Comparabl
      *   <li>{@link #voidPromise()}</li>
      * </ul>
      */
+
+
     interface Unsafe {
 
         /**
@@ -280,6 +289,8 @@ public interface Channel extends AttributeMap, ChannelOutboundInvoker, Comparabl
         /**
          * Schedules a write operation.
          */
+
+
         void write(Object msg, ChannelPromise promise);
 
         /**

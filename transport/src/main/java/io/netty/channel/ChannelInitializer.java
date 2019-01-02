@@ -97,6 +97,8 @@ public abstract class ChannelInitializer<C extends Channel> extends ChannelInbou
     /**
      * {@inheritDoc} If override this method ensure you call super!
      */
+
+    //channelinit到这里了
     @Override
     public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
         if (ctx.channel().isRegistered()) {
@@ -104,20 +106,28 @@ public abstract class ChannelInitializer<C extends Channel> extends ChannelInbou
             // The good thing about calling initChannel(...) in handlerAdded(...) is that there will be no ordering
             // surprises if a ChannelInitializer will add another ChannelInitializer. This is as all handlers
             // will be added in the expected order.
+            // 这里终于来了我们之前介绍过的 init(channel) 方法：
             initChannel(ctx);
         }
     }
 
     @SuppressWarnings("unchecked")
+
+    // ChannelInitializer 的 init(channel) 被执行以后，那么其内部添加的 handlers 会进入到 pipeline 中，然后上面的 finally
+    // 块中将 ChannelInitializer 的实例从 pipeline 中删除，那么此时 pipeline 就算建立起来了，
+
+    //其实这里还有个问题，如果我们在 ChannelInitializer 中又添加 ChannelInitializer 呢？
     private boolean initChannel(ChannelHandlerContext ctx) throws Exception {
         if (initMap.putIfAbsent(ctx, Boolean.TRUE) == null) { // Guard against re-entrance.
             try {
+                //// 1. 将把我们自定义的 handlers 添加到 pipeline 中
                 initChannel((C) ctx.channel());
             } catch (Throwable cause) {
                 // Explicitly call exceptionCaught(...) as we removed the handler before calling initChannel(...).
                 // We do so to prevent multiple calls to initChannel(...).
                 exceptionCaught(ctx, cause);
             } finally {
+                //// 2. 将 ChannelInitializer 实例从 pipeline 中删除
                 remove(ctx);
             }
             return true;

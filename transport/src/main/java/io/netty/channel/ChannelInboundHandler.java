@@ -19,6 +19,13 @@ package io.netty.channel;
  * {@link ChannelHandler} which adds callbacks for state changes. This allows the user
  * to hook in to state changes easily.
  */
+
+/**
+ * 这种类型的
+ ChannelHandler 接收入站事件和数据，这些数据随后将会被你的应用程序的业务逻辑所处
+ 理。当你要给连接的客户端发送响应时，也可以从 ChannelInboundHandler 冲刷数据。你
+ 的应用程序的业务逻辑通常驻留在一个或者多个 ChannelInboundHandler 中
+ */
 public interface ChannelInboundHandler extends ChannelHandler {
 
     /**

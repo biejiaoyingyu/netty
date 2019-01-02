@@ -175,6 +175,20 @@ import java.lang.annotation.Target;
  * what fundamental differences they have, how they flow in a  pipeline,  and how to handle
  * the operation in your application.
  */
+
+/**
+ * Netty 的主要组件是 ChannelHandler，它充当了所有
+ 处理入站和出站数据的应用程序逻辑的容器。这是可行的，因为 ChannelHandler 的方法是
+ 由网络事件（其中术语“事件”的使用非常广泛）触发的。事实上，ChannelHandler 可专
+ 门用于几乎任何类型的动作，例如将数据从一种格式转换为另外一种格式，或者处理转换过程
+ 中所抛出的异常。
+
+ 1.将数据从一种格式转换为另一种格式；
+ 2.提供异常的通知；
+ 3.提供 Channel 变为活动的或者非活动的通知；
+ 4.提供当 Channel 注册到 EventLoop 或者从 EventLoop 注销时的通知；
+ 5.提供有关用户自定义事件的通知
+ */
 public interface ChannelHandler {
 
     /**

@@ -217,6 +217,7 @@ public interface ChannelOutboundInvoker {
     /**
      * Request to flush all pending messages via this ChannelOutboundInvoker.
      */
+    //将之前已写的数据冲刷到底层传输，如一个 Socket
     ChannelOutboundInvoker flush();
 
     /**
@@ -227,6 +228,7 @@ public interface ChannelOutboundInvoker {
     /**
      * Shortcut for call {@link #write(Object)} and {@link #flush()}.
      */
+    //一个简便的方法，等同于调用 write()并接着调用 flush()
     ChannelFuture writeAndFlush(Object msg);
 
     /**

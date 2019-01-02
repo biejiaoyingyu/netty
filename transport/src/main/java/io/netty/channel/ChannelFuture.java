@@ -162,14 +162,24 @@ import java.util.concurrent.TimeUnit;
  * }
  * </pre>
  */
+
+//异步通
+//Future 接口的子接口 ChannelFuture，这个接口用得最多，它将和 IO 操作中的 Channel 关联在一起了，用于异步处理 Channel 中的事件
+
+//我们看到，ChannelFuture 接口相对于 Future 接口，除了将 channel 关联进来，没有增加什么东西。还有个 isVoid() 方法算是不那么重
+//要的存在吧。其他几个都是方法覆写，为了让返回值类型变为 ChannelFuture，而不是 Future。
+
+//接着看 Promise 接口
 public interface ChannelFuture extends Future<Void> {
 
     /**
      * Returns a channel where the I/O operation associated with this
      * future takes place.
      */
+    // ChannelFuture 关联的 Channel
     Channel channel();
 
+    // 覆写以下几个方法，使得它们返回值为 ChannelFuture 类型
     @Override
     ChannelFuture addListener(GenericFutureListener<? extends Future<? super Void>> listener);
 
@@ -208,5 +218,7 @@ public interface ChannelFuture extends Future<Void> {
      *     <li>{@link #syncUninterruptibly()}</li>
      * </ul>
      */
+    // 用来标记该 future 是 void 的，
+    // 这样就不允许使用 addListener(...), sync(), await() 以及它们的几个重载方法
     boolean isVoid();
 }
