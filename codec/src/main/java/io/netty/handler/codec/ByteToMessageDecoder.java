@@ -268,11 +268,10 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
      */
     protected void handlerRemoved0(ChannelHandlerContext ctx) throws Exception { }
 
-
     // 代码一开始就判断msg是不是ByteBuf，也就是为什么我们一般把解码器放在Channelhandler链的第一个的原因了，
     // 这样做的好处就是msg一般就是ByteBuf，不会被其他的业务逻辑影响，至少这时msg的很“纯洁”的。而且这个msg极
     // 有可能是directByteBuf，也就是说这是堆外内存的，因为我们ByteBuf在传输的时候堆外内存传输的时候可以少一
-    // 次复制
+    // 次复制---->上层代码可能会多次调用这个代码。
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         if (msg instanceof ByteBuf) {
