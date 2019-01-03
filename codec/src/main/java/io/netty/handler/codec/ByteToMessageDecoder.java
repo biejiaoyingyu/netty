@@ -67,6 +67,7 @@ import java.util.List;
  * is not released or added to the <tt>out</tt> {@link List}. Use derived buffers like {@link ByteBuf#readSlice(int)}
  * to avoid leaking memory.
  */
+//这是一个很重要的接口
 public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter {
 
     /**
@@ -77,6 +78,8 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
         public ByteBuf cumulate(ByteBufAllocator alloc, ByteBuf cumulation, ByteBuf in) {
             try {
                 final ByteBuf buffer;
+                // 行主要判断cumulation的可写下标+当前的读取的data的可读容量之和是不是大于cumulation的最大容量，
+                // 这样做的就是防止cumulation的ByteBuf容量溢出，如果大于了，则说明cumulation需要扩容了
                 if (cumulation.writerIndex() > cumulation.maxCapacity() - in.readableBytes()
                     || cumulation.refCnt() > 1 || cumulation.isReadOnly()) {
                     // Expand cumulation (by replace it) when either there is not more room in the buffer
@@ -86,6 +89,8 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
                     // See:
                     // - https://github.com/netty/netty/issues/2327
                     // - https://github.com/netty/netty/issues/1764
+
+                    //进入
                     buffer = expandCumulation(alloc, cumulation, in.readableBytes());
                 } else {
                     buffer = cumulation;
@@ -263,6 +268,11 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
      */
     protected void handlerRemoved0(ChannelHandlerContext ctx) throws Exception { }
 
+
+    // 代码一开始就判断msg是不是ByteBuf，也就是为什么我们一般把解码器放在Channelhandler链的第一个的原因了，
+    // 这样做的好处就是msg一般就是ByteBuf，不会被其他的业务逻辑影响，至少这时msg的很“纯洁”的。而且这个msg极
+    // 有可能是directByteBuf，也就是说这是堆外内存的，因为我们ByteBuf在传输的时候堆外内存传输的时候可以少一
+    // 次复制
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         if (msg instanceof ByteBuf) {
@@ -271,10 +281,16 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
                 ByteBuf data = (ByteBuf) msg;
                 first = cumulation == null;
                 if (first) {
+                    // 直接接data放入到cumulation中，这个cumulation是一个全局变量：
+                    // 这样做的好处就是cumulation相当于一个容器，在上层代码多次调用channelRead的时候，
+                    // 也就是当发送端的信息可能被接收端分多次接收的时候，这个容器存储信息
                     cumulation = data;
                 } else {
+                    //进入
                     cumulation = cumulator.cumulate(ctx.alloc(), cumulation, data);
                 }
+
+                //进入decode
                 callDecode(ctx, cumulation, out);
             } catch (DecoderException e) {
                 throw e;
@@ -419,6 +435,9 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
      */
     protected void callDecode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) {
         try {
+
+            // 之所以out中的值是多个，是因为callDecode方法内部有一个循环，输入的类型是ByteBuf的in变量，只要它的isReadable方法返回true，
+            // 说明该ByteBuf中还有可读的byte，可以按照用户自定的decode方法去切分分割，将按照用户方法切割的信息放入入参out中就可以了
             while (in.isReadable()) {
                 int outSize = out.size();
 
@@ -438,6 +457,7 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
                 }
 
                 int oldInputLength = in.readableBytes();
+                //进入decode方法--->具体由子类实现
                 decodeRemovalReentryProtection(ctx, in, out);
 
                 // Check if this handler was removed before continuing the loop.
@@ -495,8 +515,7 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
      * @param out           the {@link List} to which decoded messages should be added
      * @throws Exception    is thrown if an error occurs
      */
-    final void decodeRemovalReentryProtection(ChannelHandlerContext ctx, ByteBuf in, List<Object> out)
-            throws Exception {
+    final void decodeRemovalReentryProtection(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
         decodeState = STATE_CALLING_CHILD_DECODE;
         try {
             decode(ctx, in, out);
@@ -528,6 +547,7 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
         ByteBuf oldCumulation = cumulation;
         cumulation = alloc.buffer(oldCumulation.readableBytes() + readable);
         cumulation.writeBytes(oldCumulation);
+        //需要将老的oldCumulation释放掉
         oldCumulation.release();
         return cumulation;
     }
